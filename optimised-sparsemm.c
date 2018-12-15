@@ -22,10 +22,13 @@ int qsorter(const void *i, const void *j);
 
 
 void CSRmaker(struct sortCOO *list1, double *mtxCSRnz, int *mtxCSRn, int *mtxCSRm, int *Anz) {
+
+	//maybe dont do cumulative but normal 1,3,1 and eradicate the need of back-dependency
 	for (int i = 0; i < *Anz; i++) {
 		mtxCSRnz[i] = list1[i].d;
 		mtxCSRn[i] = list1[i].j;
 		mtxCSRm[list1[i].i+1]=i+1;
+		//++mtxCSRm[list1[i].i]; and make the rest calloc with NO +1
 	}
 
 }

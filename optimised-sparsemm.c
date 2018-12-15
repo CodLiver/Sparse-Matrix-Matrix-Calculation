@@ -204,13 +204,13 @@ void optimised_sparsemm(const COO A, const COO B, COO *C)
 
 			//CSR for A
 			double *mtxCSRnz = malloc(A->NZ * sizeof(double));//data of NZ
-			int *mtxCSRm = malloc((A->m + 1) * sizeof(int));// first zero last cumulative per row
+			int *mtxCSRm = malloc((A->m + 1) * sizeof(int));// first zero last cumulative per row //wo +1 calloc to get rid of get col size
 			mtxCSRm[0] = 0;
 			int *mtxCSRn = malloc(A->NZ * sizeof(int));//all coloumn indice
 
 			//CSR for B
 			double *mtxCSCnz = malloc(B->NZ * sizeof(double));
-			int *mtxCSCm = malloc((B->n + 1) * sizeof(int));
+			int *mtxCSCm = malloc((B->n + 1) * sizeof(int));//wo +1 calloc to get rid of get col size
 			mtxCSRm[0] = 0;
 			int *mtxCSCn = malloc(B->NZ * sizeof(int));
 

@@ -9,7 +9,7 @@ void basic_sparsemm(const COO, const COO, COO *);
 void basic_sparsemm_sum(const COO, const COO, const COO,
 	const COO, const COO, const COO,
 	COO *);
-void CSRmaker(const COO A, int *Anz, double *mtxCSRnz, int *mtxCSRn, int *mtxCSRm);
+void CSRmaker(struct sortCOO *list1, double *mtxCSRnz, int *mtxCSRn, int *mtxCSRm, int *Anz);
 
 void matrixAdder(int *curr, double *C2Vec, int *mtxAn, double *mtxAnz, int *mtxAm);
 
@@ -20,25 +20,12 @@ void dataFillerv2(COO spC, int *mtxResAn, double *mtxResAnz, int *mtxResAm, int 
 
 int qsorter(const void *i, const void *j);
 
-/*void structSort(struct sortCOO *list1, COO A, COO newA);*/
 
-void CSRmaker(const COO A, int *Anz, double *mtxCSRnz, int *mtxCSRn, int *mtxCSRm) {
-	int counter = 1;
-	int curCol = 0;
-	//fill CSR matrix
-	for (int i = 0; i < *Anz; i++)
-	{
-		mtxCSRnz[i] = A->data[i];
-		mtxCSRn[i] = A->coords[i].j;
-
-		if (A->coords[i].i > curCol) {
-			while (A->coords[i].i > curCol)
-			{
-				mtxCSRm[counter] = i;
-				curCol++;
-				counter++;
-			}
-		}
+void CSRmaker(struct sortCOO *list1, double *mtxCSRnz, int *mtxCSRn, int *mtxCSRm, int *Anz) {
+	for (int i = 0; i < *Anz; i++) {
+		mtxCSRnz[i] = list1[i].d;
+		mtxCSRn[i] = list1[i].j;
+		mtxCSRm[list1[i].i+1]=i+1;
 	}
 
 }
@@ -58,7 +45,7 @@ void matrixAdder(int *curr, double *C2Vec, int *mtxAn, double *mtxAnz, int *mtxA
 
 }
 
-void mtxGiantAdder(COO A, COO B, COO C, COO *spC) {
+/*void mtxGiantAdder(COO A, COO B, COO C, COO *spC) {
 
 	int Anz, Bnz, Cnz;
 
@@ -145,7 +132,7 @@ void mtxGiantAdder(COO A, COO B, COO C, COO *spC) {
 	free(mtxCn);
 	free(mtxCnz);
 
-}
+}*/
 
 void dataFiller(COO spC, int *mtxResAn, double *mtxResAnz, int *mtxResAm, int *posC) {
 
@@ -179,28 +166,6 @@ int qsorter(const void *i, const void *j) {
 	return ii - jj;
 }
 
-/*void structSort(struct sortCOO *list1, COO A, COO newA) {
-
-#pragma acc parallel loop
-	for (int i = 0; i < A->NZ; i++) {
-		list1[i].i = A->coords[i].i;
-		list1[i].j = A->coords[i].j;
-		list1[i].ij = A->coords[i].i * A->n + A->coords[i].j;
-		list1[i].d = A->data[i];
-	}
-	qsort(list1, A->NZ, sizeof(struct sortCOO), qsorter);
-
-/*#pragma acc parallel loop
-	for (int i = 0; i < A->NZ; i++) {
-
-		newA->coords[i].i = list1[i].i;
-		newA->coords[i].j = list1[i].j;
-		newA->data[i] = list1[i].d;
-		//printf("ij %d \n",list[i].ij);
-	}
-}*/
-
-
 /* Computes C = A*B.
 * C should be allocated by this routine.
 */
@@ -210,13 +175,12 @@ void optimised_sparsemm(const COO A, const COO B, COO *C)
 
 	struct sortCOO *list2 = malloc(B->NZ * sizeof(struct sortCOO));
 
-	COO newA;
+	/*COO newA;
 	alloc_sparse(A->m, A->n, A->NZ, &newA);
 	COO newB;
-	alloc_sparse(B->m, B->n, B->NZ, &newB);
+	alloc_sparse(B->m, B->n, B->NZ, &newB);*/
 
-
-	#pragma acc parallel loop
+		#pragma acc parallel loop
 		for (int i = 0; i < A->NZ; i++) {
 			list1[i].i = A->coords[i].i;
 			list1[i].j = A->coords[i].j;
@@ -234,10 +198,60 @@ void optimised_sparsemm(const COO A, const COO B, COO *C)
 			}
 			qsort(list2, B->NZ, sizeof(struct sortCOO), qsorter);
 
+
+			//CSR for A
+			double *mtxCSRnz = malloc(A->NZ * sizeof(double));//data of NZ
+			int *mtxCSRm = malloc((A->m + 1) * sizeof(int));// first zero last cumulative per row
+			mtxCSRm[0] = 0;
+			int *mtxCSRn = malloc(A->NZ * sizeof(int));//all coloumn indice
+
+			//CSR for B
+			double *mtxCSCnz = malloc(B->NZ * sizeof(double));
+			int *mtxCSCm = malloc((B->n + 1) * sizeof(int));
+			mtxCSRm[0] = 0;
+			int *mtxCSCn = malloc(B->NZ * sizeof(int));
+
+			CSRmaker(list1, mtxCSRnz, mtxCSRn, mtxCSRm, &A->NZ);
+			CSRmaker(list2, mtxCSCnz, mtxCSCn, mtxCSCm, &B->NZ);
+
+			for (int ii = 0; ii < A->m + 1; ii++)
+			{
+			printf("%d, ", mtxCSRm[ii]);
+
+		}
+
+		printf("\n CSRm ");
+
+		for (int ii = 0; ii < A->m + 1; ii++)
+		{
+		printf("%d, ", mtxCSCm[ii]);
+
+	}
+		printf("hey\n" );
+
+			/*int counter = 1;
+			int curCol = 0;
+			//fill CSR matrix
+			for (int i = 0; i < *Anz; i++)
+			{
+				mtxCSRnz[i] = A->data[i];
+				mtxCSRn[i] = A->coords[i].j;
+
+				if (A->coords[i].i > curCol) {
+					while (A->coords[i].i > curCol)
+					{
+						mtxCSRm[counter] = i;
+						curCol++;
+						counter++;
+					}
+				}
+			}*/
+
+
 	/*structSort(list1, A, newA);
 	structSort(list2, B, newB);*/
 
-	print_sparse(A);
+/*	print_sparse(A);
 	printf("next \n");
 	print_sparse(B);
 	printf("next \n");
@@ -249,7 +263,7 @@ printf("\n");
 	for (int i = 0; i < B->NZ; i++) {
 
 		printf("i %d j %d ij %d d %f \n", list2[i].i,list2[i].j,list2[i].ij, list2[i].d );
-	}
+	}*/
 
   /*
 	printf("A CSR init: \n");

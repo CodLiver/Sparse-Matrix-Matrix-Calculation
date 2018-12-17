@@ -280,7 +280,7 @@ printf("hey1\n");
 		int res=0;
 
 		int finalNZ=0;
-		struct sortCOO *listRes=NULL;//(struct sortCOO *)malloc(0* sizeof(struct sortCOO));
+		struct sortCOO *listRes=NULL;malloc(0* sizeof(struct sortCOO));//(struct sortCOO *)malloc(0* sizeof(struct sortCOO));
 		//struct sortCOO *tmp=NULL;
 
 		for (int i = 0; i < A->m; i++) {//for all cols or NZ.

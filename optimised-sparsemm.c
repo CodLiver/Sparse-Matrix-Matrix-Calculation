@@ -5,11 +5,13 @@
 #include <time.h>
 #include <string.h>
 
+//http://shodhganga.inflibnet.ac.in/bitstream/10603/151755/11/11_chapter%203.pdf 44
+
 void basic_sparsemm(const COO, const COO, COO *);
 void basic_sparsemm_sum(const COO, const COO, const COO,
 	const COO, const COO, const COO,
 	COO *);
-void CSRmaker(struct sortCOO *list1, double *mtxCSRnz, int *mtxCSRn, int *mtxCSRm, int *Anz);
+void CSRmaker(struct sortCOO *list1, double *mtxCSRnz, int *mtxCSRn, int *mtxCSRm, COO A);
 
 void matrixAdder(int *curr, double *C2Vec, int *mtxAn, double *mtxAnz, int *mtxAm);
 
@@ -20,17 +22,31 @@ void dataFillerv2(COO spC, int *mtxResAn, double *mtxResAnz, int *mtxResAm, int 
 
 int qsorter(const void *i, const void *j);
 
+struct sortCOO * sortedNormal(COO A);
+struct sortCOO * sortedTranspose(COO B);
 
-void CSRmaker(struct sortCOO *list1, double *mtxCSRnz, int *mtxCSRn, int *mtxCSRm, int *Anz) {
+
+void CSRmaker(struct sortCOO *list1, double *mtxCSRnz, int *mtxCSRn, int *mtxCSRm, COO A) {
 
 	//maybe dont do cumulative but normal 1,3,1 and eradicate the need of back-dependency
-	for (int i = 0; i < *Anz; i++) {
+	for (int i = 0; i < A->NZ; i++) {
 		mtxCSRnz[i] = list1[i].d;
 		mtxCSRn[i] = list1[i].j;
 		mtxCSRm[list1[i].i+1]=i+1;
-		//++mtxCSRm[list1[i].i]; and make the rest calloc with NO +1
+			//or get for at a time and then the remained. make it in a separate branch in github.
+
+		//++mtxCSRm[list1[i].i]; //and make the rest calloc with NO +1
 	}
 
+	int sum=0;
+	for (int fixer = 1; fixer < A->n +1; fixer++) {
+
+		if (!mtxCSRm[fixer]) {
+			mtxCSRm[fixer]=sum;
+		}else{
+			sum=mtxCSRm[fixer];
+		}
+	}
 }
 
 void matrixAdder(int *curr, double *C2Vec, int *mtxAn, double *mtxAnz, int *mtxAm) {
@@ -169,59 +185,85 @@ int qsorter(const void *i, const void *j) {
 	return ii - jj;
 }
 
+struct sortCOO * sortedNormal(COO A){
+
+	struct sortCOO *list1 = malloc(A->NZ * sizeof(struct sortCOO));
+
+	#pragma acc parallel loop
+	#pragma ivdep //check if there is overlaps
+	for (int i = 0; i < A->NZ; i++) {
+		list1[i].i = A->coords[i].i;
+		list1[i].j = A->coords[i].j;
+		list1[i].ij = A->coords[i].i * A->n + A->coords[i].j;
+		list1[i].d = A->data[i];
+	}
+
+	//or get for at a time and then the remained. make it in a separate branch in github.
+	qsort(list1, A->NZ, sizeof(struct sortCOO), qsorter);
+
+	return list1;
+}
+
+struct sortCOO * sortedTranspose(COO B){
+
+	struct sortCOO *list2 = malloc(B->NZ * sizeof(struct sortCOO));
+
+
+	#pragma acc parallel loop
+	#pragma ivdep //check if there is overlaps
+		for (int i = 0; i < B->NZ; i++) {
+			list2[i].i = B->coords[i].j;
+			list2[i].j = B->coords[i].i;
+			list2[i].ij = B->coords[i].j * B->m + B->coords[i].i;
+			list2[i].d = B->data[i];
+		}
+			//or get for at a time and then the remained. make it in a separate branch in github.
+		qsort(list2, B->NZ, sizeof(struct sortCOO), qsorter);
+
+		return list2;
+}
+
 /* Computes C = A*B.
 * C should be allocated by this routine.
 */
 void optimised_sparsemm(const COO A, const COO B, COO *C)
 {
-	struct sortCOO *list1 = malloc(A->NZ * sizeof(struct sortCOO));
+	struct sortCOO *list1 = sortedNormal(A);//malloc(A->NZ * sizeof(struct sortCOO));
 
-	struct sortCOO *list2 = malloc(B->NZ * sizeof(struct sortCOO));
+	struct sortCOO *list2 = sortedTranspose(B);
 
 	/*COO newA;
 	alloc_sparse(A->m, A->n, A->NZ, &newA);
 	COO newB;
 	alloc_sparse(B->m, B->n, B->NZ, &newB);*/
 
-		#pragma acc parallel loop
-		for (int i = 0; i < A->NZ; i++) {
-			list1[i].i = A->coords[i].i;
-			list1[i].j = A->coords[i].j;
-			list1[i].ij = A->coords[i].i * A->n + A->coords[i].j;
-			list1[i].d = A->data[i];
-		}
-		qsort(list1, A->NZ, sizeof(struct sortCOO), qsorter);
-
-		#pragma acc parallel loop
-			for (int i = 0; i < A->NZ; i++) {
-				list2[i].i = B->coords[i].j;
-				list2[i].j = B->coords[i].i;
-				list2[i].ij = B->coords[i].j * B->m + B->coords[i].i;
-				list2[i].d = B->data[i];
-			}
-			qsort(list2, B->NZ, sizeof(struct sortCOO), qsorter);
 
 
 			//CSR for A
 			double *mtxCSRnz = malloc(A->NZ * sizeof(double));//data of NZ
-			int *mtxCSRm = malloc((A->m + 1) * sizeof(int));// first zero last cumulative per row //wo +1 calloc to get rid of get col size
+			int *mtxCSRm = calloc((A->m + 1)  , sizeof(int));// first zero last cumulative per row //wo +1 calloc to get rid of get col size
 			mtxCSRm[0] = 0;
 			int *mtxCSRn = malloc(A->NZ * sizeof(int));//all coloumn indice
 
 			//CSR for B
 			double *mtxCSCnz = malloc(B->NZ * sizeof(double));
-			int *mtxCSCm = malloc((B->n + 1) * sizeof(int));//wo +1 calloc to get rid of get col size
+			int *mtxCSCm = calloc((B->n + 1) , sizeof(int));//wo +1 calloc to get rid of get col size
 			mtxCSRm[0] = 0;
 			int *mtxCSCn = malloc(B->NZ * sizeof(int));
 
-			CSRmaker(list1, mtxCSRnz, mtxCSRn, mtxCSRm, &A->NZ);
-			CSRmaker(list2, mtxCSCnz, mtxCSCn, mtxCSCm, &B->NZ);
+			CSRmaker(list1, mtxCSRnz, mtxCSRn, mtxCSRm, A);
 
-			for (int ii = 0; ii < A->m + 1; ii++)
-			{
-			printf("%d, ", mtxCSRm[ii]);
 
-		}
+
+			CSRmaker(list2, mtxCSCnz, mtxCSCn, mtxCSCm, B);
+
+
+/*
+for (int ii = 0; ii < A->m + 1; ii++)
+{
+printf("%d, ", mtxCSRm[ii]);
+}
+printf("hey1\n");
 
 		printf("\n CSRm ");
 
@@ -230,7 +272,81 @@ void optimised_sparsemm(const COO A, const COO B, COO *C)
 		printf("%d, ", mtxCSCm[ii]);
 
 	}
-		printf("hey\n" );
+		printf("hey2\n" );*/
+
+		double *Vector = calloc(A->n , sizeof(int));
+
+
+		int res=0;
+
+		int finalNZ=0;
+		struct sortCOO *listRes=NULL;//(struct sortCOO *)malloc(0* sizeof(struct sortCOO));
+		//struct sortCOO *tmp=NULL;
+
+		for (int i = 0; i < A->m; i++) {//for all cols or NZ.
+
+			//pragma kernel or data to hold vector??
+			//maybe put vectorization quartet here and pragma acc
+
+			printf("%d,%d\n",mtxCSRm[i],mtxCSRm[i+1]);
+			#pragma acc parallel loop
+			for (int rowMaker = mtxCSRm[i]; rowMaker < mtxCSRm[i+1]; rowMaker++) {
+				//printf("indice[%d]= value: %f \n",mtxCSRn[rowMaker] , mtxCSRnz[rowMaker]);
+				Vector[mtxCSRn[rowMaker]] = mtxCSRnz[rowMaker];
+				//printf("res: %f \n", Vector[mtxCSRn[rowMaker]] );
+			}
+
+			for (int ij	 = 0; ij < A->n; ij++) {
+				printf("%f,",	Vector[ij] );
+			}
+			printf("\n");
+
+			//#pragma acc parallel loop . ress can be overlapped. if you really want, use copy.
+			for (int j = 0; j < B->n; j++) {//for all cols
+
+				#pragma acc parallel loop //do vectorization %%
+				for (int colMaker = mtxCSCm[j]; colMaker < mtxCSCm[j+1]; colMaker++) {
+					res+=Vector[mtxCSCn[colMaker]]*mtxCSCnz[colMaker];
+				}
+
+				if (res) {//size_t n = sizeof(a)/sizeof(a[0]); if 0, then all 0.
+					printf("hey %d\n",res);
+					listRes=realloc(listRes, (finalNZ+1) * sizeof(struct sortCOO));
+					//tmp=realloc(tmp, (finalNZ+1) * sizeof(struct sortCOO));
+					//printf("hey tmp\n");
+					//memcpy(tmp, listRes, (finalNZ+1)* sizeof(struct sortCOO));
+					//printf("hey cpy\n");
+					//*listRes=*tmp;
+					//listRes=malloc(0* sizeof(struct sortCOO));//realloc(listRes, (finalNZ+1) * sizeof(struct sortCOO));
+					printf("hey1\n");
+					listRes[finalNZ].i=i;
+					listRes[finalNZ].j=j;
+					listRes[finalNZ].ij=i* A->n +j;
+					listRes[finalNZ].d=res;
+					printf("i %d, j %d, ij= %d, d %f \n",listRes[finalNZ].i,listRes[finalNZ].j,listRes[finalNZ].ij,listRes[finalNZ].d);
+					++finalNZ;
+					res=0;
+				}
+
+			}
+
+
+			memset(Vector, 0, A->n * sizeof(double));
+
+		}
+
+		for (int show = 0; show < finalNZ; show++) {
+
+			printf("i %d, j %d, ij= %d, d %f \n",listRes[show].i,listRes[show].j,listRes[show].ij,listRes[show].d);
+
+		}
+
+
+
+
+
+
+
 
 			/*int counter = 1;
 			int curCol = 0;

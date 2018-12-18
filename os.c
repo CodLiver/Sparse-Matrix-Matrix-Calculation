@@ -312,6 +312,7 @@ void optimised_sparsemm_sum(const COO A, const COO B, const COO C,
 
 		COO spC;
 		COO spD;
+
 		mtxGiantAdder(list1,list2,list3,A, B, C, &spC);
 		mtxGiantAdder(list4,list5,list6,D, E, F, &spD);
 
